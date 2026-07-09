@@ -1,0 +1,25 @@
+# --- Web framework ---
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+python-multipart==0.0.*
+pydantic-settings==2.*
+
+# --- PyTorch: install the CUDA 12.8 build separately (see Dockerfile), NOT from here ---
+# torch, torchaudio  -> installed explicitly with --index-url for cu128 in the Dockerfile
+
+# --- ASR pipeline ---
+# Pin ctranslate2 to a version >= the release containing PR #1982
+# ("Enable multiple of 16 padding for INT8 Tensor Cores") — this is the fix for
+# the sm_120/Blackwell int8 CUBLAS_STATUS_NOT_SUPPORTED crash. Check
+# https://github.com/OpenNMT/CTranslate2/releases before pinning an exact version,
+# and validate int8_float16 on your own hardware before relying on it in prod.
+ctranslate2>=4.6
+faster-whisper>=1.1
+whisperx>=3.3
+
+# --- Diarization (optional, only needed if ENABLE_DIARIZATION=true) ---
+pyannote.audio>=3.3
+
+# --- Utilities ---
+numpy<2.0
+python-dotenv
