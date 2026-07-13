@@ -3,15 +3,15 @@ Decodes arbitrary uploaded audio (mp3, m4a, ogg, webm/opus from browsers, wav, e
 into a mono float32 numpy array at the target sample rate, via ffmpeg.
 
 Doing this ourselves (instead of trusting the upload's declared format) means the
-API accepts literally anything ffmpeg can read, and we never hand a mystery
-container straight to the model.
+API accepts literally anything ffmpeg can read, and we never hand mystery
+audio bytes straight to the model.
 """
 import numpy as np
 import subprocess
 import shutil
 
 if shutil.which("ffmpeg") is None:
-    raise RuntimeError("ffmpeg not found on PATH — install it in the container image.")
+    raise RuntimeError("ffmpeg not found on PATH — install it on the host or add it to PATH.")
 
 
 def decode_audio(raw_bytes: bytes, target_sr: int = 16000) -> np.ndarray:

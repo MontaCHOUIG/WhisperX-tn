@@ -1,13 +1,15 @@
 """
 Central configuration. All values overridable via environment variables / .env.
 """
-from pydantic_settings import BaseSettings
 from typing import Optional
+import os
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     # --- Model ---
-    MODEL_PATH: str = "/models/whisper-tn-ct2"   # local dir with your CT2-converted finetuned model
+    MODEL_PATH: str = "models/whisper-tn-ct2"   # local dir with your CT2-converted finetuned model
     LANGUAGE: str = "ar"                          # force language (skip language-ID pass -> faster + safer for dialect)
     DEVICE: str = "cuda"
     DEVICE_INDEX: int = 0
@@ -20,10 +22,13 @@ class Settings(BaseSettings):
     BEAM_SIZE: int = 5
 
     # --- Alignment / diarization (optional stages) ---
-    ENABLE_ALIGNMENT: bool = False                # no solid Tunisian-derja wav2vec2 model exists; see README
-    ALIGN_MODEL_NAME: Optional[str] = None        # e.g. "jonatasgrosman/wav2vec2-large-xlsr-53-arabic" (MSA, imperfect on derja)
+    ENABLE_ALIGNMENT: bool = False               # no solid Tunisian-derja wav2vec2 model exists; see README
+    ALIGN_MODEL_NAME: Optional[str] = "jonatasgrosman/wav2vec2-large-xlsr-53-arabic"     # (MSA, imperfect on derja)
     ENABLE_DIARIZATION: bool = True
     HF_TOKEN: Optional[str] = None                # required only if ENABLE_DIARIZATION or a gated align model
+    # Store Hub models somewhere persistent. Mount this directory in containers;
+    # otherwise pyannote has to download its models again after every replacement.
+    HF_HOME: Optional[str] = ".cache/huggingface"
 
     # --- Concurrency / GPU serialization ---
     MAX_CONCURRENT_GPU_JOBS: int = 1              # keep at 1 unless you've validated multi-stream VRAM headroom
@@ -33,10 +38,9 @@ class Settings(BaseSettings):
     SYNC_MAX_AUDIO_SECONDS: int = 60              # requests longer than this are forced onto the async job path
 
     # --- Live streaming websocket ---
-    STREAM_TRANSCRIBE_EVERY_SECONDS: float = 3.0  # emit a partial transcript after this much new audio
+    STREAM_TRANSCRIBE_EVERY_SECONDS: float = 2.0  # emit a partial transcript after this much new audio
     STREAM_WINDOW_SECONDS: float = 12.0           # rolling audio window sent to Whisper for each partial
 
-    # --- Job store (swap for Redis if you run >1 uvicorn worker/process) ---
     JOB_TTL_SECONDS: int = 3600
 
     # --- Auth ---
@@ -51,3 +55,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# huggingface_hub reads this setting while its modules are imported. Set it as
+# soon as settings are available, before whisperx/pyannote is imported.
+if settings.HF_HOME:
+    os.environ.setdefault("HF_HOME", settings.HF_HOME)

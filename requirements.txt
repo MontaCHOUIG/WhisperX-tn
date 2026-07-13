@@ -4,8 +4,8 @@ uvicorn[standard]==0.34.*
 python-multipart==0.0.*
 pydantic-settings==2.*
 
-# --- PyTorch: install the CUDA 12.8 build separately (see Dockerfile), NOT from here ---
-# torch, torchaudio  -> installed explicitly with --index-url for cu128 in the Dockerfile
+# --- PyTorch: install the CUDA 12.8 build separately before this file ---
+# torch, torchaudio  -> install with --index-url for your CUDA build, e.g. cu128
 
 # --- ASR pipeline ---
 # Pin ctranslate2 to a version >= the release containing PR #1982

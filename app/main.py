@@ -44,6 +44,9 @@ async def health():
         "device": settings.DEVICE,
         "compute_type": settings.COMPUTE_TYPE,
         "model_path": settings.MODEL_PATH,
+        "diarization_enabled": settings.ENABLE_DIARIZATION,
+        "diarization_loaded": model_manager.is_diarization_loaded(),
+        "alignment_enabled": settings.ENABLE_ALIGNMENT,
     }
 
 
@@ -181,6 +184,10 @@ async def transcribe_stream(
     websocket: WebSocket,
     api_key: str = Query(default=None),
     language: str = Query(default=None),
+    diarize: bool = Query(default=True),
+    align: bool = Query(default=False),
+    min_speakers: int = Query(default=None),
+    max_speakers: int = Query(default=None),
     emit_every_seconds: float = Query(default=None, gt=0),
     window_seconds: float = Query(default=None, gt=0),
 ):
@@ -188,9 +195,9 @@ async def transcribe_stream(
     Live-ish transcription over WebSocket.
 
     The client sends binary frames containing raw mono pcm_s16le audio at
-    TARGET_SAMPLE_RATE. The server transcribes a rolling window every few
-    seconds and sends JSON partials back. Send {"event":"stop"} as text to
-    request one final transcript for the buffered audio.
+    TARGET_SAMPLE_RATE. The server transcribes and diarizes a rolling window
+    every few seconds, then sends JSON partials back. Send {"event":"stop"} as
+    text to request one final transcript for the buffered audio.
     """
     if not _websocket_api_key_is_valid(websocket, api_key):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -219,8 +226,10 @@ async def transcribe_stream(
         result = await gpu_worker.run_sync(
             audio=source_audio,
             language=language,
-            align=False,
-            diarize=False,
+            align=align,
+            diarize=diarize,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
         )
         offset_seconds = offset_samples / settings.TARGET_SAMPLE_RATE
         await websocket.send_json({
@@ -233,6 +242,25 @@ async def transcribe_stream(
                     "start": segment.start + offset_seconds,
                     "end": segment.end + offset_seconds,
                     "text": segment.text,
+                    "speaker": segment.speaker,
+                    "words": [
+                        {
+                            "word": word.word,
+                            "start": (
+                                word.start + offset_seconds
+                                if word.start is not None
+                                else None
+                            ),
+                            "end": (
+                                word.end + offset_seconds
+                                if word.end is not None
+                                else None
+                            ),
+                            "score": word.score,
+                            "speaker": word.speaker,
+                        }
+                        for word in (segment.words or [])
+                    ] or None,
                 }
                 for segment in result.segments
             ],

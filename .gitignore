@@ -1,3 +1,6 @@
 .env
 AGENTS.md
 .agents
+/models
+.cache/
+api-test-template

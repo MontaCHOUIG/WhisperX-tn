@@ -18,8 +18,8 @@ ct2-transformers-converter \
   --copy_files tokenizer.json preprocessor_config.json
 ```
 
-Mount `./models/whisper-tn-ct2` into the container at `/models/whisper-tn-ct2`
-(already wired up in `docker-compose.yml`).
+Keep the converted model at `./models/whisper-tn-ct2`, or set `MODEL_PATH`
+in `.env` to another local directory.
 
 ## 2. Hardware-specific gotchas (read before deploying)
 
@@ -33,9 +33,10 @@ Mount `./models/whisper-tn-ct2` into the container at `/models/whisper-tn-ct2`
   version, VAD) needs a PyTorch build that actually ships sm_120 kernels.
   Stable PyTorch releases lag new hardware — check
   https://pytorch.org/get-started/locally/ for the current recommended
-  cu128/cu129 index before you build the image; you may need a recent nightly.
-- **cuDNN 9**: recent CTranslate2 releases dropped cuDNN 8 support. Use a
-  cuDNN-9-based CUDA image (the provided Dockerfile does).
+  cu128/cu129 index before installing; you may need a recent nightly.
+- **cuDNN 9**: recent CTranslate2 releases dropped cuDNN 8 support. Make sure
+  your local CUDA/cuDNN runtime is compatible with the CTranslate2 build you
+  install.
 - **Forced alignment**: there's no solid Tunisian-derja wav2vec2 phoneme
   model. `ENABLE_ALIGNMENT` defaults to `false`; segment-level timestamps
   from the Whisper model itself are unaffected. If you turn alignment on
@@ -47,11 +48,33 @@ Mount `./models/whisper-tn-ct2` into the container at `/models/whisper-tn-ct2`
 
 ## 3. Running it
 
-```bash
-cp .env.example .env      # edit MODEL_PATH, API_KEY, etc.
-docker compose up --build
+```powershell
+python -m venv venv
+venv\Scripts\activate
+python -m pip install --upgrade pip
+pip install --index-url https://download.pytorch.org/whl/cu128 torch torchaudio
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 curl http://localhost:8000/v1/health
 ```
+
+Before starting, edit `.env` as needed:
+
+```env
+# Linux/macOS: models/whisper-tn-ct2
+# Windows: models\\whisper-tn-ct2
+MODEL_PATH=models/whisper-tn-ct2
+API_KEY=change-me
+HF_TOKEN=
+HF_HOME=.cache/huggingface
+```
+
+`ffmpeg` must be installed on the host and available on `PATH`.
+
+With `ENABLE_DIARIZATION=true`, the pyannote pipeline loads lazily on the first
+request using `diarize=true`. Its Hugging Face files are retained under
+`HF_HOME`, so keep that directory on persistent storage (or mount it as a
+volume in containers) to avoid downloading them again after restarts.
 
 ## 4. API reference
 
@@ -142,7 +165,7 @@ push for job completion in this version.
 Use this when a client starts recording and wants transcript updates while
 audio is still arriving. This is a rolling-window stream, not token-by-token
 Whisper decoding: the client sends small raw PCM chunks, and the server
-re-transcribes the latest window every few seconds.
+re-transcribes and diarizes the latest window every few seconds.
 
 Connect with either an `X-API-Key` websocket header or an `api_key` query
 parameter:
@@ -154,6 +177,10 @@ ws://localhost:8000/v1/transcribe/stream?api_key=change-me
 Query options:
 
 - `language=ar` overrides the server default language.
+- `diarize=true` enables speaker diarization on each rolling window.
+- `align=true` enables word-level forced alignment when the server enables it.
+- `min_speakers=2` hints the minimum speaker count for diarization.
+- `max_speakers=4` hints the maximum speaker count for diarization.
 - `emit_every_seconds=3` controls how often partial transcripts are emitted.
 - `window_seconds=12` controls how much recent audio each partial uses.
 
@@ -166,7 +193,7 @@ Audio contract: send binary websocket frames as mono `pcm_s16le` at
   "text": "...",
   "window_start_seconds": 6.0,
   "window_duration_seconds": 12.0,
-  "segments": [{ "start": 6.2, "end": 8.9, "text": "..." }]
+  "segments": [{ "start": 6.2, "end": 8.9, "text": "...", "speaker": "SPEAKER_00" }]
 }
 ```
 
@@ -203,7 +230,7 @@ mono, convert Float32 samples to signed 16-bit PCM, then send each chunk's
 curl http://localhost:8000/v1/health
 ```
 ```json
-{"status": "ok", "device": "cuda", "compute_type": "float16", "model_path": "/models/whisper-tn-ct2"}
+{"status": "ok", "device": "cuda", "compute_type": "float16", "model_path": "models/whisper-tn-ct2"}
 ```
 
 ## 5. Client examples
@@ -291,8 +318,8 @@ curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8000/v1/health
 The in-memory job store and single GPU queue in this project are correct for
 **one process per GPU**. If you need more throughput:
 
-- Run one container per physical GPU (never multiple `uvicorn` workers
-  sharing one GPU — they'd each load a full copy of the model into VRAM).
+- Run one process per physical GPU (never multiple `uvicorn` workers sharing
+  one GPU — they'd each load a full copy of the model into VRAM).
 - Move job state from the in-memory dict (`gpu_worker.py`) into Redis so any
   process can answer a status poll, and put a load balancer in front.
 - If you have VRAM headroom (RTX 5090 has 32GB), you can raise
